@@ -163,7 +163,3 @@ The LLM narration layer (`llm_client.py`) is deliberately constrained so it can'
 ## Disclaimer
 
 Predictions and AI-generated narration in this project should not be used for real clinical or operational decisions without further validation.
-
-## License
-
-Add a license of your choice (e.g. MIT) here.
