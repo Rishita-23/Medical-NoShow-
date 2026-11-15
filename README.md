@@ -4,8 +4,6 @@ An interactive Streamlit dashboard that predicts the probability a patient will 
 
 Built on the [Kaggle Medical Appointment No-Shows dataset](https://www.kaggle.com/datasets/joniarroba/noshowappointments) (110K+ appointments).
 
-![Dashboard](plots/dashboard.png)
-
 ## Highlights
 
 - **XGBoost classifier** tuned with `GridSearchCV` and `StratifiedKFold`, optimizing ROC-AUC (test ROC-AUC: **0.74**).
