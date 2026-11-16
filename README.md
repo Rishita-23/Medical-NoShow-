@@ -1,120 +1,97 @@
-# Patient No-Show Prediction: AI Insights Dashboard
+# Medical Appointment No-Show Prediction
 
-An interactive Streamlit dashboard that predicts the probability a patient will miss a scheduled medical appointment, explains each prediction with SHAP, and narrates dataset-level insights with an LLM that is strictly grounded in precomputed numbers, so it cannot invent statistics.
+Predicts the probability that a patient will miss a scheduled appointment, explains each prediction with SHAP, and uses an LLM to narrate dataset-level insights in plain English. Includes an interactive Streamlit dashboard.
 
-Built on the [Kaggle Medical Appointment No-Shows dataset](https://www.kaggle.com/datasets/joniarroba/noshowappointments) (110K+ appointments).
-
-## Highlights
-
-- **XGBoost classifier** tuned with `GridSearchCV` and `StratifiedKFold`, optimizing ROC-AUC (test ROC-AUC: **0.74**).
-- **Leakage-aware features:** neighbourhood no-show rate is computed on the training split only, then mapped to the test split.
-- **Imbalance handled** with `scale_pos_weight`, with no resampling.
-- **Explainable:** SHAP `TreeExplainer` for per-patient and global explanations.
-- **Grounded LLM narration:** Llama 3.1 8B Instruct (Mistral 7B fallback) via the Hugging Face Inference API, restricted to numbers from a precomputed JSON summary.
-- **Graceful fallback:** without a token, the app shows raw SHAP values and data summaries instead of failing.
+> **Demo project.** Trained on a public historical dataset and not validated on a real clinic's population. Predictions and AI-generated narration should not inform real clinical or scheduling decisions without further validation.
 
 ## Results
 
-Evaluated on an untouched 20% stratified test set.
+Evaluated on a stratified 20% hold-out set (22,105 appointments).
 
 | Metric | Value |
-| --- | --- |
-| ROC-AUC | 0.74 |
-| Accuracy | add value from train.py output |
-| Recall (no-show class) | add value from train.py output |
+|---|---|
+| ROC-AUC (test) | **0.745** |
+| ROC-AUC (3-fold CV, best model) | 0.751 |
+| Accuracy | 80.2% (majority-class baseline: 79.8%) |
+| No-show precision | 0.58 |
+| No-show recall | 0.06 |
 
-![ROC curve](plots/roc_curve.png)
-![Confusion matrix](plots/confusion_matrix.png)
+**Reading these numbers honestly:** the model ranks appointments by risk reasonably well (AUC 0.745, with test and CV scores close together, so no sign of overfitting). At the default 0.5 decision threshold, however, it flags very few no-shows (recall 0.06), because only 20.2% of appointments are no-shows and no imbalance correction was applied. Accuracy is therefore not a meaningful headline metric here. See [Limitations and next steps](#limitations-and-next-steps).
 
-## Dashboard tabs
+### What drives no-shows
 
-1. **Dataset Insights:** key metrics and no-show rates by day of week, lead time, age group, and SMS reminder status.
-2. **Risk Predictor:** enter a patient and appointment profile to get a risk %, a risk band (Low, Moderate, High), and a recommended action.
-3. **Model Performance:** accuracy, ROC-AUC, confusion matrix, ROC curve, feature importance, and the training methodology.
-4. **AI Insights:** ask questions about the dataset or generate an executive summary. If the data can't answer, the model says so instead of estimating.
+Top features by XGBoost importance:
 
-## Tech stack
+| Feature | Importance |
+|---|---|
+| `lead_days` (days between booking and appointment) | 0.341 |
+| `sms_received` | 0.082 |
+| `age` | 0.076 |
+| `patient_appt_count` (patient history) | 0.060 |
+| `alcoholism` | 0.053 |
 
-- **Data and features:** pandas, numpy
-- **Model:** XGBoost (`XGBClassifier`), `GridSearchCV`, `StratifiedKFold`
-- **Explainability:** SHAP (`TreeExplainer`)
-- **LLM narration:** Hugging Face Inference API (Llama 3.1 8B Instruct, Mistral 7B fallback)
-- **App:** Streamlit
+Lead time is by far the strongest signal, about four times the importance of the next feature.
+
+## Dataset
+
+[Medical Appointment No-Shows](https://www.kaggle.com/datasets/joniarroba/noshowappointments) (Kaggle): 110,527 appointments, 110,521 after cleaning. 20.2% are no-shows. The raw CSV is not included in this repo; download it and place it in `data/`.
+
+## Approach
+
+1. **Preprocessing** (`preprocessing.py`): cleans the raw data and engineers features (23 columns in total), such as lead time, day of week, comorbidity indicators and patient appointment history.
+2. **Split and scaling:** 80/20 stratified train/test split. `StandardScaler` is fit on the training set only.
+3. **Tuning** (`train.py`): XGBoost classifier tuned with `GridSearchCV` over 32 parameter combinations (3-fold stratified CV, 96 fits), optimizing ROC-AUC.
+   Best parameters: `n_estimators=200`, `max_depth=5`, `learning_rate=0.1`, `subsample=0.8`, `colsample_bytree=1.0`.
+4. **Explainability** (`shap_explainer.py`): SHAP `TreeExplainer` for per-patient and global explanations.
+5. **AI insights** (`llm_client.py`): Llama 3.1 8B Instruct (Mistral 7B as fallback) via the Hugging Face Inference API. Prompts are restricted to numbers from a precomputed summary, and the app falls back to raw SHAP values and data summaries when no token is set.
+
+## Dashboard
+
+Run `streamlit run app.py`. Four tabs:
+
+1. **Dataset Insights:** no-show rates by day of week, lead time, age group and SMS reminder status.
+2. **Risk Predictor:** risk percentage, risk band and recommended action for a single appointment.
+3. **Model Performance:** evaluation plots and metrics.
+4. **AI Insights:** LLM-written summary of the patterns in the data.
+
+## Getting started
+
+```bash
+pip install -r requirements.txt
+```
+
+1. Download the Kaggle dataset into `data/`.
+2. Optional: copy `.env.example` to `.env` and add a Hugging Face token to enable AI narration.
+3. Train the model:
+   ```bash
+   python train.py
+   ```
+   This saves the model and scaler to `model/` and evaluation plots to `plots/`.
+4. Launch the dashboard:
+   ```bash
+   streamlit run app.py
+   ```
 
 ## Project structure
 
 ```
-.
-├── app.py                 Streamlit app (4 tabs)
-├── preprocessing.py       Raw CSV to cleaned, feature-engineered CSV
-├── train.py               Train and tune XGBoost, save model and plots
-├── shap_explainer.py      SHAP explainer and driver extraction
-├── llm_client.py          Hugging Face client and grounded prompts
-├── data/
-│   ├── raw_appointments.csv        (not included, see Setup)
-│   └── processed_appointments.csv  (generated)
-├── model/noshow_model.pkl (generated)
-├── plots/                 (generated)
-├── requirements.txt
-└── .env.example
+app.py              Streamlit dashboard
+train.py            Training, tuning and evaluation
+preprocessing.py    Cleaning and feature engineering
+shap_explainer.py   SHAP explanations
+llm_client.py       LLM narration (Hugging Face Inference API)
+data/               Raw dataset (not included)
+model/              Saved model artifacts
+plots/              Evaluation and feature-importance plots
 ```
 
-## Setup
+## Limitations and next steps
 
-1. **Clone and install**
-   ```
-   git clone https://github.com/Rishita-23/Medical-NoShow-.git
-   cd Medical-NoShow-
-   python -m venv .venv
-   source .venv/bin/activate        # Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-2. **Get the data:** download the [Kaggle dataset](https://www.kaggle.com/datasets/joniarroba/noshowappointments) and save it as `data/raw_appointments.csv`.
-3. **Set your token (optional):**
-   ```
-   cp .env.example .env
-   ```
-   Add `HF_TOKEN=your_token_here` to `.env`. Use a fine-grained token with only the "Make calls to Inference Providers" permission. The app works without a token.
-4. **Run the pipeline**
-   ```
-   python preprocessing.py
-   python train.py            # add --quick for a single fast configuration
-   ```
-5. **Launch**
-   ```
-   streamlit run app.py
-   ```
+- **Low no-show recall at the default threshold.** Planned fixes: tune the decision threshold on a precision-recall curve, add `scale_pos_weight`, and report precision, recall and F1 at the chosen operating point. SMOTE was tried but skipped because of a threadpool issue in the training environment.
+- **Public data only.** Not validated on a real clinic's population, and patient behaviour varies by region and clinic.
+- **Moderate predictive signal.** An AUC of 0.745 reflects limited information in the available features. Richer data (appointment type, prior no-show history by patient, weather, transport access) would likely help.
+- **LLM narration** on the free Hugging Face tier can be slow after idle periods.
 
-## Model methodology
+## Tech stack
 
-| Step | Detail |
-| --- | --- |
-| Preprocessing | Clean the raw CSV, engineer features (lead time, day of week, comorbidity score, patient history), drop invalid rows |
-| Split | 80/20 stratified train/test split |
-| Neighbourhood rate | Computed from the training split only; unseen neighbourhoods fall back to the training global rate |
-| Scaling | `StandardScaler`, fit on the training set only |
-| Class balance | `scale_pos_weight`, no resampling |
-| Tuning | `GridSearchCV` with `StratifiedKFold`, optimizing ROC-AUC |
-| Evaluation | Untouched test set |
-| Explainability | SHAP `TreeExplainer`, per prediction and in batch |
-
-## AI grounding design
-
-The narration layer (`llm_client.py`) is built so it can't hallucinate clinical statistics:
-
-- A system prompt restricts the model to numbers given in that prompt.
-- Each prompt embeds a precomputed JSON summary or SHAP driver list as the only source of truth, and the model must say "I don't have that specific figure" rather than guess.
-- If the API is unavailable, the app falls back to raw SHAP values or the JSON summary.
-
-## Security
-
-`.env` is git-ignored and must never be committed. Use `.env.example` as the template. If a token is ever exposed, revoke it immediately at huggingface.co/settings/tokens.
-
-## Limitations
-
-- Trained on a public historical dataset; not validated on a real clinic's population.
-- The free Hugging Face tier can be slow on the first request after idle time.
-
-## Disclaimer
-
-Predictions and AI-generated narration are for demonstration only and must not inform real clinical or scheduling decisions without further validation.
+Python, pandas, NumPy, scikit-learn, XGBoost, SHAP, Streamlit, Hugging Face Inference API.
